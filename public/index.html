@@ -3,63 +3,137 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI 股票分析面板</title>
+    <title>AI 股票分析终端</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="app-shell">
-      <section class="workspace">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">Full-stack LLM Stock Dashboard</p>
-            <h1>AI 股票分析面板</h1>
+    <div class="app-layout">
+      <!-- Top Navigation / Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <div class="logo">
+            <i class="ph-fill ph-chart-line-up"></i>
+            AI-Stock<span class="muted">Terminal</span>
           </div>
-          <div class="status-pill" id="configStatus">检查配置中</div>
-        </header>
+          <nav class="nav-links">
+            <a href="#" class="active">Overview</a>
+            <a href="#">Analysis</a>
+            <a href="#">Watchlist</a>
+          </nav>
+        </div>
+        <div class="header-right">
+          <div class="system-status">
+            <div class="status-indicator warning" id="configStatusIndicator"></div>
+            <span id="configStatus">System Check...</span>
+            <div class="status-details">
+              <span id="llmMeta" class="badge">LLM: -</span>
+              <span id="storageMeta" class="badge">DB: -</span>
+            </div>
+          </div>
+        </div>
+      </header>
 
-        <form class="query-panel" id="stockForm">
-          <label for="symbolInput">股票代码</label>
-          <div class="input-row">
-            <input id="symbolInput" name="symbol" value="AAPL" autocomplete="off" placeholder="AAPL / TSLA / 0700.HK">
-            <button type="submit">获取行情</button>
-            <button type="button" class="secondary" id="analyzeButton">AI 分析并保存</button>
+      <!-- Main Toolbar -->
+      <div class="toolbar">
+        <form class="search-form" id="stockForm">
+          <div class="search-input-group">
+            <i class="ph ph-magnifying-glass search-icon"></i>
+            <input id="symbolInput" name="symbol" value="AAPL" autocomplete="off" placeholder="Global ticker or name: AAPL, 601138, 0700.HK, 7203.T, Toyota">
+            <button type="submit" class="primary-btn">Get Quote</button>
+            <button type="button" class="secondary-btn" id="analyzeButton">
+              <i class="ph-fill ph-magic-wand"></i> AI Analyze
+            </button>
           </div>
-          <p class="hint">美股可直接输入代码；其他市场可尝试 Yahoo/Stooq 兼容代码，例如 0700.HK。</p>
         </form>
+        <div class="quick-symbols">
+          <span class="label">Watchlist:</span>
+          <button type="button" data-symbol="AAPL">AAPL</button>
+          <button type="button" data-symbol="TSLA">TSLA</button>
+          <button type="button" data-symbol="NVDA">NVDA</button>
+          <button type="button" data-symbol="601138">601138</button>
+          <button type="button" data-symbol="600519">600519</button>
+          <button type="button" data-symbol="0700.HK">0700.HK</button>
+          <button type="button" data-symbol="7203.T">7203.T</button>
+          <button type="button" data-symbol="HSBA.L">HSBA.L</button>
+        </div>
+      </div>
 
-        <section class="grid">
-          <article class="panel">
-            <div class="panel-header">
-              <h2>实时行情</h2>
-              <span id="providerBadge">等待查询</span>
+      <!-- Main Content Grid -->
+      <main class="main-content">
+        <!-- Top Row: Quote and AI Analysis -->
+        <div class="grid-row top-row">
+          <section class="panel quote-panel">
+            <header class="panel-header">
+              <h3>Real-Time Market Data</h3>
+              <span id="providerBadge" class="tag">Waiting</span>
+            </header>
+            <div class="panel-body" id="quoteView">
+              <div class="empty-state">
+                <i class="ph ph-chart-bar"></i>
+                <p>Enter a ticker to fetch real-time market data.</p>
+              </div>
             </div>
-            <div class="quote" id="quoteView">
-              <p class="empty">输入股票代码后获取行情。</p>
-            </div>
-          </article>
+          </section>
 
-          <article class="panel">
-            <div class="panel-header">
-              <h2>LLM 分析 JSON</h2>
-              <span id="analysisBadge">未分析</span>
+          <section class="panel analysis-panel">
+            <header class="panel-header">
+              <h3>AI Analysis & Risk Assessment</h3>
+              <span id="analysisBadge" class="tag">Idle</span>
+            </header>
+            <div class="panel-body" id="analysisView">
+              <div class="empty-state">
+                <i class="ph ph-cpu"></i>
+                <p>Click "AI Analyze" to generate strict JSON analysis.</p>
+              </div>
             </div>
-            <div class="analysis" id="analysisView">
-              <p class="empty">点击 AI 分析后，这里会展示 summary、sentiment 和 risk_level。</p>
-            </div>
-          </article>
-        </section>
+          </section>
+        </div>
 
-        <section class="panel history-panel">
-          <div class="panel-header">
-            <h2>Supabase 记录</h2>
-            <button type="button" class="ghost" id="refreshHistoryButton">刷新</button>
-          </div>
-          <div class="history-list" id="historyList">
-            <p class="empty">暂无记录。</p>
-          </div>
-        </section>
-      </section>
-    </main>
+        <!-- Middle Row: History -->
+        <div class="grid-row">
+          <section class="panel history-panel">
+            <header class="panel-header">
+              <h3>Analysis History</h3>
+              <button type="button" class="icon-btn" id="refreshHistoryButton" title="Refresh">
+                <i class="ph ph-arrows-clockwise"></i> Refresh
+              </button>
+            </header>
+            <div class="panel-body history-list" id="historyList">
+              <div class="empty-state">
+                <i class="ph ph-clock-counter-clockwise"></i>
+                <p>No historical records found.</p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Bottom Row: Dev Logs -->
+        <div class="grid-row bottom-row">
+          <section class="panel dev-panel">
+            <header class="panel-header">
+              <h3>Prompt Payload</h3>
+            </header>
+            <div class="panel-body no-padding">
+              <pre class="code-block prompt-code" id="promptView">Loading Prompt...</pre>
+            </div>
+          </section>
+
+          <section class="panel dev-panel">
+            <header class="panel-header">
+              <h3>Raw Quote JSON</h3>
+              <span id="rawBadge" class="tag">Pending</span>
+            </header>
+            <div class="panel-body no-padding">
+              <pre class="code-block raw-json" id="rawQuoteView">{}</pre>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/app.js"></script>

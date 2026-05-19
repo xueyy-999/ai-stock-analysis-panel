@@ -41,10 +41,40 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     if (url.pathname === "/api/health" && req.method === "GET") {
+      const deploymentBlockers = getDeploymentBlockers();
       sendJson(res, 200, {
         ok: true,
         llmConfigured: Boolean(CONFIG.llmApiKey) || CONFIG.llmMock,
-        supabaseConfigured: Boolean(CONFIG.supabaseUrl && CONFIG.supabaseKey)
+        supabaseConfigured: Boolean(CONFIG.supabaseUrl && CONFIG.supabaseKey),
+        llmModel: CONFIG.llmMock ? "mock" : CONFIG.llmModel,
+        llmApiUrl: CONFIG.llmApiUrl,
+        strictJson: true,
+        deploymentReady: deploymentBlockers.length === 0,
+        deploymentBlockers,
+        marketDataProviders: [
+          "Yahoo Finance chart",
+          "Yahoo Finance search",
+          "Eastmoney A-share fallback",
+          "Stooq fallback"
+        ]
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/prompt" && req.method === "GET") {
+      sendJson(res, 200, {
+        schema: {
+          summary: "string",
+          sentiment: "Bullish|Neutral|Bearish",
+          risk_level: "Low|Medium|High"
+        },
+        messages: buildAnalysisMessages(samplePromptStock()),
+        response_format: CONFIG.disableResponseFormat ? null : { type: "json_object" },
+        validators: [
+          "Response must be a bare JSON object.",
+          "sentiment must be Bullish, Neutral, or Bearish.",
+          "risk_level must be Low, Medium, or High."
+        ]
       });
       return;
     }
@@ -130,24 +160,103 @@ async function serveStatic(requestPath, res) {
 }
 
 async function fetchStockData(symbol) {
-  const attempts = [
-    () => fetchYahooChart(symbol),
-    () => fetchStooqQuote(symbol)
-  ];
   const errors = [];
+  const triedSymbols = new Set();
 
-  for (const attempt of attempts) {
+  for (const candidate of yahooSymbolCandidates(symbol)) {
+    triedSymbols.add(candidate.toUpperCase());
     try {
-      return await attempt();
+      return await fetchYahooChart(candidate, symbol);
     } catch (error) {
-      errors.push(error.message);
+      errors.push(`${candidate}: ${error.message}`);
     }
+  }
+
+  if (/^\d{6}$/.test(symbol)) {
+    try {
+      return await fetchEastMoneyQuote(symbol);
+    } catch (error) {
+      errors.push(`Eastmoney: ${error.message}`);
+    }
+  }
+
+  try {
+    return await fetchYahooSearchQuote(symbol, triedSymbols);
+  } catch (error) {
+    errors.push(`Yahoo search: ${error.message}`);
+  }
+
+  try {
+    return await fetchStooqQuote(symbol);
+  } catch (error) {
+    errors.push(`Stooq: ${error.message}`);
   }
 
   throw httpError(502, `Unable to fetch market data for ${symbol}: ${errors.join(" | ")}`);
 }
 
-async function fetchYahooChart(symbol) {
+function yahooSymbolCandidates(symbol) {
+  const candidates = [symbol, toYahooSymbol(symbol), toHongKongSymbol(symbol)].filter(Boolean);
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    const key = candidate.toUpperCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function toHongKongSymbol(symbol) {
+  if (!/^\d{1,5}$/.test(symbol) || /^\d{6}$/.test(symbol)) return null;
+  return `${symbol.padStart(4, "0")}.HK`;
+}
+
+async function fetchYahooSearchQuote(symbol, triedSymbols) {
+  const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=12&newsCount=0&enableFuzzyQuery=true`;
+  const response = await fetch(searchUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 ai-stock-analysis-panel/1.0"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Yahoo search returned HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const quotes = Array.isArray(payload.quotes) ? payload.quotes : [];
+  const candidates = quotes
+    .filter((quote) => ["EQUITY", "ETF"].includes(quote.quoteType))
+    .map((quote) => quote.symbol)
+    .filter(Boolean);
+
+  if (!candidates.length) {
+    throw new Error("No equity candidates found");
+  }
+
+  const errors = [];
+  for (const candidate of candidates) {
+    const key = candidate.toUpperCase();
+    if (triedSymbols.has(key)) continue;
+    triedSymbols.add(key);
+    try {
+      return await fetchYahooChart(candidate, symbol, "Yahoo Finance search + chart");
+    } catch (error) {
+      errors.push(`${candidate}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.length ? errors.join(" | ") : "All search candidates were already tried");
+}
+
+function toYahooSymbol(symbol) {
+  if (!/^\d{6}$/.test(symbol)) return symbol;
+  if (/^(60|68|90)/.test(symbol)) return `${symbol}.SS`;
+  if (/^(00|30|20)/.test(symbol)) return `${symbol}.SZ`;
+  return symbol;
+}
+
+async function fetchYahooChart(symbol, requestedSymbol = symbol, provider = "Yahoo Finance chart") {
   const apiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`;
   const response = await fetch(apiUrl, {
     headers: {
@@ -190,8 +299,8 @@ async function fetchYahooChart(symbol) {
 
   return {
     symbol: String(meta.symbol || symbol).toUpperCase(),
-    requestedSymbol: symbol,
-    provider: "Yahoo Finance chart",
+    requestedSymbol,
+    provider,
     currency: meta.currency || null,
     exchange: meta.exchangeName || meta.fullExchangeName || null,
     marketTime,
@@ -204,9 +313,84 @@ async function fetchYahooChart(symbol) {
     changePercent,
     volume: numberOrNull(quotes.volume[latestIndex]),
     raw: {
+      resolvedSymbol: symbol,
       dataGranularity: meta.dataGranularity,
       range: meta.range,
       timezone: meta.timezone
+    }
+  };
+}
+
+async function fetchEastMoneyQuote(symbol) {
+  if (!/^\d{6}$/.test(symbol)) {
+    throw new Error("Eastmoney only supports 6-digit A-share codes in this app");
+  }
+
+  const market = /^(60|68|90)/.test(symbol) ? "1" : "0";
+  const secid = `${market}.${symbol}`;
+  const fields = [
+    "f43",
+    "f44",
+    "f45",
+    "f46",
+    "f47",
+    "f48",
+    "f57",
+    "f58",
+    "f60",
+    "f107",
+    "f168",
+    "f169",
+    "f170"
+  ].join(",");
+  const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(secid)}&fields=${encodeURIComponent(fields)}`;
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 ai-stock-analysis-panel/1.0",
+      "Referer": "https://quote.eastmoney.com/"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Eastmoney returned HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const data = payload.data;
+  if (!data || payload.rc !== 0) {
+    throw new Error("Eastmoney response does not include quote data");
+  }
+
+  const price = scaledEastMoneyPrice(data.f43);
+  const previousClose = scaledEastMoneyPrice(data.f60);
+  if (price === null) {
+    throw new Error("Eastmoney price is invalid");
+  }
+
+  const change = numberOrNull(data.f169) !== null ? round(data.f169 / 100, 4) : previousClose === null ? null : round(price - previousClose, 4);
+  const changePercent = numberOrNull(data.f170) !== null ? round(data.f170 / 100, 2) : previousClose === null || previousClose === 0 ? null : round((change / previousClose) * 100, 2);
+
+  return {
+    symbol: String(data.f57 || symbol).toUpperCase(),
+    requestedSymbol: symbol,
+    provider: "Eastmoney",
+    name: data.f58 || null,
+    currency: "CNY",
+    exchange: market === "1" ? "SSE" : "SZSE",
+    marketTime: new Date().toISOString(),
+    open: scaledEastMoneyPrice(data.f46),
+    high: scaledEastMoneyPrice(data.f44),
+    low: scaledEastMoneyPrice(data.f45),
+    close: price,
+    previousClose,
+    change,
+    changePercent,
+    volume: numberOrNull(data.f47) === null ? null : Number(data.f47) * 100,
+    amount: numberOrNull(data.f48),
+    raw: {
+      secid,
+      market: data.f107,
+      sourceName: data.f58
     }
   };
 }
@@ -323,13 +507,40 @@ async function analyzeStockWithLLM(stock) {
     throw httpError(502, "LLM API returned non-JSON transport response.");
   }
 
-  const content = payload.choices && payload.choices[0] && payload.choices[0].message && payload.choices[0].message.content;
+  const content = extractChatContent(payload);
   if (!content) {
     throw httpError(502, "LLM API response did not include message content.");
   }
 
   const analysis = parseStrictAnalysisJson(content);
   return normalizeAnalysis(analysis);
+}
+
+function extractChatContent(payload) {
+  const message = payload.choices && payload.choices[0] && payload.choices[0].message;
+  const content = message && message.content;
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part.text === "string") return part.text;
+        if (part && typeof part.content === "string") return part.content;
+        return "";
+      })
+      .join("")
+      .trim();
+  }
+
+  if (content && typeof content === "object") {
+    return JSON.stringify(content);
+  }
+
+  return "";
 }
 
 function buildAnalysisMessages(stock) {
@@ -355,6 +566,21 @@ function buildAnalysisMessages(stock) {
   ];
 }
 
+function samplePromptStock() {
+  return {
+    symbol: "AAPL",
+    provider: "Yahoo Finance chart",
+    currency: "USD",
+    exchange: "NMS",
+    close: 297.84,
+    previousClose: 292.68,
+    change: 5.16,
+    changePercent: 1.76,
+    volume: 34463500,
+    marketTime: "2026-05-18T20:00:01Z"
+  };
+}
+
 function parseStrictAnalysisJson(content) {
   const trimmed = String(content).trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
@@ -369,6 +595,16 @@ function parseStrictAnalysisJson(content) {
 }
 
 function normalizeAnalysis(analysis) {
+  if (!analysis || Array.isArray(analysis) || typeof analysis !== "object") {
+    throw httpError(502, "LLM response must be a JSON object.");
+  }
+
+  const allowedKeys = new Set(["summary", "sentiment", "risk_level"]);
+  const extraKeys = Object.keys(analysis).filter((key) => !allowedKeys.has(key));
+  if (extraKeys.length) {
+    throw httpError(502, `LLM returned extra keys: ${extraKeys.join(", ")}.`);
+  }
+
   const normalized = {
     summary: stringField(analysis.summary, "summary"),
     sentiment: stringField(analysis.sentiment, "sentiment"),
@@ -386,6 +622,28 @@ function normalizeAnalysis(analysis) {
   }
 
   return normalized;
+}
+
+function getDeploymentBlockers() {
+  const blockers = [];
+
+  if (!CONFIG.llmMock && !CONFIG.llmApiKey) {
+    blockers.push("LLM_API_KEY is missing.");
+  }
+
+  if (!CONFIG.llmMock && isLocalhostUrl(CONFIG.llmApiUrl)) {
+    blockers.push("LLM_API_URL points to localhost; Render needs a public OpenAI-compatible endpoint.");
+  }
+
+  if (!CONFIG.supabaseUrl || !CONFIG.supabaseKey) {
+    blockers.push("Supabase credentials are missing.");
+  }
+
+  return blockers;
+}
+
+function isLocalhostUrl(value) {
+  return /(^|\/\/)(127\.0\.0\.1|localhost)(:|\/|$)/i.test(String(value || ""));
 }
 
 async function saveAnalysis(stock, analysis) {
@@ -454,12 +712,12 @@ async function fetchHistory() {
 }
 
 function cleanSymbol(input) {
-  const symbol = String(input || "").trim().toUpperCase();
+  const symbol = String(input || "").trim().replace(/\s+/g, " ").toUpperCase();
   if (!symbol) {
     throw httpError(400, "Stock symbol is required.");
   }
-  if (!/^[A-Z0-9.^=-]{1,20}$/.test(symbol)) {
-    throw httpError(400, "Stock symbol may only contain letters, numbers, dot, caret, equals, or hyphen.");
+  if (!/^[A-Z0-9 .^=&-]{1,60}$/.test(symbol)) {
+    throw httpError(400, "Stock symbol or company name may only contain letters, numbers, spaces, dot, caret, equals, ampersand, or hyphen.");
   }
   return symbol;
 }
@@ -576,6 +834,12 @@ function numberOrNull(value) {
   if (value === null || value === undefined || value === "" || value === "N/D") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function scaledEastMoneyPrice(value) {
+  const number = numberOrNull(value);
+  if (number === null || number < 0) return null;
+  return round(number / 100, 4);
 }
 
 function round(value, digits) {

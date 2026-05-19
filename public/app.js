@@ -7,7 +7,14 @@ const analysisView = document.querySelector("#analysisView");
 const historyList = document.querySelector("#historyList");
 const providerBadge = document.querySelector("#providerBadge");
 const analysisBadge = document.querySelector("#analysisBadge");
+const configStatusIndicator = document.querySelector("#configStatusIndicator");
 const configStatus = document.querySelector("#configStatus");
+const llmMeta = document.querySelector("#llmMeta");
+const storageMeta = document.querySelector("#storageMeta");
+const modeMeta = document.querySelector("#modeMeta");
+const rawQuoteView = document.querySelector("#rawQuoteView");
+const rawBadge = document.querySelector("#rawBadge");
+const promptView = document.querySelector("#promptView");
 const toast = document.querySelector("#toast");
 
 let latestStock = null;
@@ -25,39 +32,78 @@ refreshHistoryButton.addEventListener("click", async () => {
   await loadHistory();
 });
 
+document.querySelectorAll("[data-symbol]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    symbolInput.value = button.dataset.symbol;
+    await loadStock();
+  });
+});
+
 boot();
 
 async function boot() {
-  await checkHealth();
-  await loadHistory();
+  await Promise.all([checkHealth(), loadPrompt(), loadHistory()]);
+  await loadStock();
 }
 
 async function checkHealth() {
   try {
     const health = await apiGet("/api/health");
-    const parts = [];
-    parts.push(health.llmConfigured ? "LLM 已配置" : "LLM 未配置");
-    parts.push(health.supabaseConfigured ? "Supabase 已配置" : "Supabase 未配置");
-    configStatus.textContent = parts.join(" / ");
-    configStatus.className = health.llmConfigured && health.supabaseConfigured ? "status-pill ready" : "status-pill warn";
+    const hasLlm = Boolean(health.llmConfigured);
+    const hasSupabase = Boolean(health.supabaseConfigured);
+    configStatus.textContent = hasLlm && hasSupabase
+      ? "Production Ready"
+      : hasLlm
+        ? "LLM Ready / DB Missing"
+        : "LLM Missing";
+    configStatusIndicator.className = hasLlm && hasSupabase
+      ? "status-indicator ready"
+      : hasLlm
+        ? "status-indicator warning"
+        : "status-indicator error";
+    llmMeta.textContent = hasLlm ? `LLM: ${health.llmModel || "Configured"}` : "LLM: Missing";
+    storageMeta.textContent = hasSupabase ? "DB: Supabase" : "DB: Missing";
+    if (modeMeta) modeMeta.textContent = health.strictJson ? "Strict JSON" : "Text";
   } catch (error) {
-    configStatus.textContent = "服务未就绪";
-    configStatus.className = "status-pill warn";
+    configStatus.textContent = "Server Offline";
+    configStatusIndicator.className = "status-indicator error";
+    llmMeta.textContent = "LLM: Offline";
+    storageMeta.textContent = "DB: -";
+    if (modeMeta) modeMeta.textContent = "-";
+  }
+}
+
+async function loadPrompt() {
+  try {
+    const prompt = await apiGet("/api/prompt");
+    promptView.textContent = JSON.stringify({
+      messages: prompt.messages,
+      response_format: prompt.response_format,
+      validators: prompt.validators
+    }, null, 2);
+  } catch (error) {
+    promptView.textContent = `Prompt 加载失败：${error.message}`;
   }
 }
 
 async function loadStock() {
   setBusy(true);
   analysisBadge.textContent = "未分析";
-  analysisView.innerHTML = '<p class="empty">点击 AI 分析后，这里会展示 summary、sentiment 和 risk_level。</p>';
+  analysisView.innerHTML = '<p class="empty">点击 AI 分析后，这里会展示 LLM 返回的严格 JSON。</p>';
 
   try {
     const symbol = symbolInput.value.trim();
     const data = await apiGet(`/api/stock?symbol=${encodeURIComponent(symbol)}`);
     latestStock = data.stock;
     renderStock(latestStock);
+    renderRawStock(latestStock);
     showToast("行情已更新");
   } catch (error) {
+    providerBadge.textContent = "Error";
+    latestStock = null;
+    renderError(quoteView, "行情获取失败", error.message);
+    rawBadge.textContent = "Error";
+    rawQuoteView.textContent = JSON.stringify({ error: error.message }, null, 2);
     showToast(error.message);
   } finally {
     setBusy(false);
@@ -66,16 +112,20 @@ async function loadStock() {
 
 async function analyzeStock() {
   setBusy(true);
+  analysisBadge.textContent = "分析中";
 
   try {
     const symbol = symbolInput.value.trim();
     const data = await apiPost("/api/analyze", { symbol });
     latestStock = data.stock;
     renderStock(data.stock);
+    renderRawStock(data.stock);
     renderAnalysis(data.analysis, data.saved);
     await loadHistory();
-    showToast(data.saved && data.saved.ok ? "AI 分析已保存" : "AI 分析完成，Supabase 未保存");
+    showToast(data.saved && data.saved.ok ? "AI 分析已写入 Supabase" : "AI 分析完成，Supabase 未保存");
   } catch (error) {
+    analysisBadge.textContent = "失败";
+    renderError(analysisView, "AI 分析失败", error.message);
     showToast(error.message);
   } finally {
     setBusy(false);
@@ -96,9 +146,15 @@ function renderStock(stock) {
   providerBadge.textContent = stock.provider;
   quoteView.innerHTML = `
     <div class="quote-metric">
-      <span class="quote-symbol">${escapeHtml(stock.symbol)}</span>
-      <span class="quote-price">${formatNumber(stock.close)}</span>
-      <span class="change ${changeClass}">${formatChange(stock.change)} (${formatPercent(stock.changePercent)})</span>
+      <div>
+        <span class="quote-symbol">${escapeHtml(stock.symbol)}</span>
+        ${stock.name ? `<span class="quote-name">${escapeHtml(stock.name)}</span>` : ""}
+        <span class="quote-price">${formatNumber(stock.close)}</span>
+      </div>
+      <div class="change-card">
+        <span class="change-label">涨跌幅</span>
+        <span class="change ${changeClass}">${formatChange(stock.change)} (${formatPercent(stock.changePercent)})</span>
+      </div>
     </div>
     <div class="stats-grid">
       ${stat("开盘", formatNumber(stock.open))}
@@ -113,14 +169,24 @@ function renderStock(stock) {
   `;
 }
 
+function renderRawStock(stock) {
+  rawBadge.textContent = stock.symbol;
+  rawQuoteView.textContent = JSON.stringify(stock, null, 2);
+}
+
 function renderAnalysis(analysis, saved) {
-  analysisBadge.textContent = saved && saved.ok ? "已保存" : "未保存";
+  analysisBadge.textContent = saved && saved.ok ? "已保存" : "已分析";
+  const saveText = saved && saved.ok
+    ? "已写入 Supabase stock_analyses 表。"
+    : `未写入 Supabase：${saved && saved.reason ? saved.reason : "Supabase 未配置。"}`;
+
   analysisView.innerHTML = `
     <div class="analysis-summary">${escapeHtml(analysis.summary)}</div>
     <div class="chips">
       <span class="chip sentiment ${escapeHtml(analysis.sentiment)}">sentiment: ${escapeHtml(analysis.sentiment)}</span>
       <span class="chip">risk_level: ${escapeHtml(analysis.risk_level)}</span>
     </div>
+    <div class="save-note">${escapeHtml(saveText)}</div>
     <pre class="analysis-json">${escapeHtml(JSON.stringify(analysis, null, 2))}</pre>
   `;
 }
@@ -140,6 +206,16 @@ function renderHistory(items) {
       <span>${escapeHtml(item.risk_level || "-")}</span>
     </div>
   `).join("");
+}
+
+function renderError(target, title, detail) {
+  target.innerHTML = `
+    <div class="error-card">
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(detail)}</p>
+      <span>换一个全球股票代码/公司英文名再试，例如 AAPL、601138、0700.HK、7203.T、Toyota。</span>
+    </div>
+  `;
 }
 
 async function apiGet(url) {

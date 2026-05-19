@@ -6,6 +6,7 @@
 
 - 本地演示 URL：`http://127.0.0.1:3000`
 - Render 线上 URL：`https://<your-render-service>.onrender.com`
+- 交付说明 URL：`https://github.com/xueyy-999/ai-stock-analysis-panel/blob/main/DELIVERY.md`
 
 > 部署到 Render 后，把上面的 Render URL 替换成真实服务地址再提交最终版 README。
 

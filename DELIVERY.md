@@ -4,7 +4,7 @@
 
 ## 提交 URL
 
-- 在线访问 URL：部署到 Render 后填写，例如 `https://ai-stock-analysis-panel.onrender.com`
+- 在线访问 URL：`https://ai-stock-analysis-panel-lsmq.onrender.com`
 - 交付说明 URL：`https://github.com/xueyy-999/ai-stock-analysis-panel/blob/main/DELIVERY.md`
 - GitHub 仓库 URL：`https://github.com/xueyy-999/ai-stock-analysis-panel`
 

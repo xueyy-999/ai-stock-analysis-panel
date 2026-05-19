@@ -5,7 +5,7 @@
 ## 在线访问 URL
 
 - 本地演示 URL：`http://127.0.0.1:3000`
-- Render 线上 URL：`https://<your-render-service>.onrender.com`
+- Render 线上 URL：`https://ai-stock-analysis-panel-lsmq.onrender.com`
 - 交付说明 URL：`https://github.com/xueyy-999/ai-stock-analysis-panel/blob/main/DELIVERY.md`
 
 > 部署到 Render 后，把上面的 Render URL 替换成真实服务地址再提交最终版 README。
@@ -15,7 +15,7 @@
 可以，但前提是访问 Render 线上 URL，而不是访问你本机的 `127.0.0.1:3000`。
 
 - 本机运行：只有你这台电脑能直接访问 `http://127.0.0.1:3000`。
-- Render 部署：任何人打开 `https://<your-render-service>.onrender.com` 都能用。
+- Render 部署：任何人打开 `https://ai-stock-analysis-panel-lsmq.onrender.com` 都能用。
 - Render 环境变量：必须配置公网可访问的 `LLM_API_URL`、`LLM_API_KEY`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`。
 - 本机 CPAMC：`http://127.0.0.1:8317/...` 只能给本机项目用，Render 不能访问这个本机地址。
 
@@ -213,8 +213,8 @@ CORS_ORIGIN=*
 部署后检查：
 
 ```bash
-curl https://<your-render-service>.onrender.com/api/health
-curl https://<your-render-service>.onrender.com/api/stock?symbol=AAPL
+curl https://ai-stock-analysis-panel-lsmq.onrender.com/api/health
+curl https://ai-stock-analysis-panel-lsmq.onrender.com/api/stock?symbol=AAPL
 ```
 
 如果 `/api/health` 里 `supabaseConfigured` 是 `false`，说明 Render 环境变量没有正确配置 Supabase，历史记录不会写入数据库。
@@ -244,9 +244,9 @@ git push -u origin main
 
 `.env` 已在 `.gitignore` 中，不会提交真实密钥。
 
-## 最终提交前必须替换
+## 最终提交前必须确认
 
-- 把 `Render 线上 URL` 从 `https://<your-render-service>.onrender.com` 改成真实地址。
+- Render 线上 URL 已填写为 `https://ai-stock-analysis-panel-lsmq.onrender.com`。
 - 在 Supabase 执行 `supabase-schema.sql`。
 - 在 Render 配置真实 `LLM_API_URL`、`LLM_API_KEY`、`LLM_MODEL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`。
 - 运行 `npm run check:deploy`，确认没有 blocking issues。

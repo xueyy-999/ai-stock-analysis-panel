@@ -486,12 +486,19 @@ async function analyzeStockWithLLM(stock) {
     requestBody.response_format = { type: "json_object" };
   }
 
+  const headers = {
+    "Authorization": `Bearer ${CONFIG.llmApiKey}`,
+    "Content-Type": "application/json",
+    "User-Agent": "ai-stock-analysis-panel/1.0"
+  };
+
+  if (/pinggy/i.test(CONFIG.llmApiUrl)) {
+    headers["X-Pinggy-No-Screen"] = "true";
+  }
+
   const response = await fetch(CONFIG.llmApiUrl, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${CONFIG.llmApiKey}`,
-      "Content-Type": "application/json"
-    },
+    headers,
     body: JSON.stringify(requestBody)
   });
 

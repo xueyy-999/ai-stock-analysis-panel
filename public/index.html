@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI 股票分析面板</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Full-stack LLM Stock Dashboard</p>
+            <h1>AI 股票分析面板</h1>
+          </div>
+          <div class="status-pill" id="configStatus">检查配置中</div>
+        </header>
+
+        <form class="query-panel" id="stockForm">
+          <label for="symbolInput">股票代码</label>
+          <div class="input-row">
+            <input id="symbolInput" name="symbol" value="AAPL" autocomplete="off" placeholder="AAPL / TSLA / 0700.HK">
+            <button type="submit">获取行情</button>
+            <button type="button" class="secondary" id="analyzeButton">AI 分析并保存</button>
+          </div>
+          <p class="hint">美股可直接输入代码；其他市场可尝试 Yahoo/Stooq 兼容代码，例如 0700.HK。</p>
+        </form>
+
+        <section class="grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h2>实时行情</h2>
+              <span id="providerBadge">等待查询</span>
+            </div>
+            <div class="quote" id="quoteView">
+              <p class="empty">输入股票代码后获取行情。</p>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h2>LLM 分析 JSON</h2>
+              <span id="analysisBadge">未分析</span>
+            </div>
+            <div class="analysis" id="analysisView">
+              <p class="empty">点击 AI 分析后，这里会展示 summary、sentiment 和 risk_level。</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel history-panel">
+          <div class="panel-header">
+            <h2>Supabase 记录</h2>
+            <button type="button" class="ghost" id="refreshHistoryButton">刷新</button>
+          </div>
+          <div class="history-list" id="historyList">
+            <p class="empty">暂无记录。</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -8,7 +8,7 @@
 - Render 线上 URL：`https://ai-stock-analysis-panel-lsmq.onrender.com`
 - 交付说明 URL：`https://github.com/xueyy-999/ai-stock-analysis-panel/blob/main/DELIVERY.md`
 
-> 部署到 Render 后，把上面的 Render URL 替换成真实服务地址再提交最终版 README。
+> Prompt 代码、Debug 记录和完整技术栈说明已集中整理在交付说明 URL 中。
 
 ## 别人电脑能不能用
 
